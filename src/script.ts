@@ -1,3 +1,4 @@
+import { URLSearchParams } from "url";
 import dotenv from "dotenv";
 dotenv.config();
 import needle from "needle";
@@ -18,6 +19,11 @@ let now = new Date();
 let yesterday = new Date(now);
 yesterday.setDate(now.getDate() - 1);
 
+interface Author {
+  id: string;
+  username: string;
+}
+
 interface Tweet {
   Date: string;
   Username: string;
@@ -25,6 +31,10 @@ interface Tweet {
   Link: string;
   DaysOfCoding: number;
   tweetData?: any;
+}
+
+interface AuthorData {
+  data: Author[];
 }
 
 interface TweetData {
@@ -43,6 +53,26 @@ async function handleErrors(response: Response) {
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
+}
+
+async function getTweetAuthors(tweetIds: string[]): Promise<AuthorData> {
+  console.log("getting tweet authors");
+  const params = new URLSearchParams();
+  params.append("ids", tweetIds.join(","));
+  params.append("user.fields", "username");
+
+  const response: Response = await fetch(
+    `${USER_LOOKUP_ENDPOINT}?${params.toString()}`,
+    {
+      headers: new Headers({
+        Authorization: `Bearer ${BEARER_TOKEN}`,
+      }),
+    }
+  );
+
+  await handleErrors(response);
+
+  return await response.json();
 }
 
 async function getTweets() {
@@ -78,10 +108,39 @@ async function getTweets() {
   return response.body;
 }
 
+async function createDataFrames(authorsData: any, tweetData: any) {
+  const authors: Record<string, string> = {};
+
+  for (const author of authorsData.data) {
+    authors[author.id] = author.username;
+  }
+
+  const df: Tweet[] = [];
+  for (const tweet of tweetData.data) {
+    const authorName = authors[tweet.author_id];
+    const url = `https://twitter.com/${authorName}/status/${tweet.id}`;
+
+    if (!authorName.toLowerCase().includes("bot")) {
+      const newTweet: Tweet = {
+        Date: tweet.created_at,
+        Username: authorName,
+        Tweets: tweet.text,
+        Link: url,
+        DaysOfCoding: 1,
+      };
+      df.push(newTweet);
+    }
+  }
+  return df;
+}
+
 async function processTweets() {
   const tweetData = await getTweets();
   console.log(tweetData);
   const tweetIds = tweetData.data.map((tweet: any) => tweet.author_id);
+  const authorsData = await getTweetAuthors(tweetIds);
+
+  const df = await createDataFrames(authorsData, tweetData);
 }
 
 (async () => {
