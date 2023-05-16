@@ -1,3 +1,7 @@
+import { GoogleSpreadsheet } from "google-spreadsheet";
+import { CronJob } from "cron";
+import * as ExcelJS from "exceljs";
+import * as fs from "fs";
 import { URLSearchParams } from "url";
 import dotenv from "dotenv";
 dotenv.config();
@@ -25,7 +29,7 @@ interface Author {
 }
 
 interface Tweet {
-  Date: string;
+  "Date Created": string;
   Username: string;
   Tweets: string;
   Link: string;
@@ -114,6 +118,9 @@ async function createDataFrames(authorsData: any, tweetData: any) {
   for (const author of authorsData.data) {
     authors[author.id] = author.username;
   }
+  const date = `${yesterday.getDate()}/${
+    yesterday.getMonth() + 1
+  }/${yesterday.getFullYear()}`;
 
   const df: Tweet[] = [];
   for (const tweet of tweetData.data) {
@@ -122,7 +129,7 @@ async function createDataFrames(authorsData: any, tweetData: any) {
 
     if (!authorName.toLowerCase().includes("bot")) {
       const newTweet: Tweet = {
-        Date: tweet.created_at,
+        "Date Created": date,
         Username: authorName,
         Tweets: tweet.text,
         Link: url,
@@ -134,6 +141,97 @@ async function createDataFrames(authorsData: any, tweetData: any) {
   return df;
 }
 
+async function updateSpreadsheet(df: any): Promise<void> {
+  console.log("updating spreadsheet");
+  const doc = new GoogleSpreadsheet(SPREADSHEET_ID);
+  await doc.useServiceAccountAuth(require("../mdrive.json"));
+  await doc.loadInfo();
+  const sheet = doc.sheetsByIndex[0];
+
+  const rows = await sheet.getRows();
+  const existingUsers: { [key: string]: any } = {};
+  rows.forEach((row) => {
+    existingUsers[row.Username] = row;
+  });
+
+  for (const row of df) {
+    const username = row.Username;
+    if (username in existingUsers) {
+      // increment day count
+      existingUsers[username].DaysOfCoding++;
+      // update date, tweets, link
+      existingUsers[username]["Date Created"] = row["Date Created"];
+      existingUsers[username].Tweets = row.Tweets;
+      existingUsers[username].Link = row.Link;
+      await existingUsers[username].save();
+    } else {
+      // add new user
+      await sheet.addRow({
+        "Date Created": row["Date Created"],
+        Username: row.Username,
+        Tweets: row.Tweets,
+        Link: row.Link,
+        DaysOfCoding: row.DaysOfCoding,
+      });
+    }
+  }
+}
+
+async function updateExcel(tweets: Tweet[]) {
+  console.log("Updating Excel...");
+  const workbook = new ExcelJS.Workbook();
+  let worksheet;
+
+  if (!BEARER_TOKEN || !EXCEL_FILE_PATH) {
+    console.error("BEARER_TOKEN and EXCEL_FILE_PATH must be set");
+    process.exit(1);
+  }
+
+  if (fs.existsSync(EXCEL_FILE_PATH)) {
+    console.log("Reading existing file...");
+    await workbook.xlsx.readFile(EXCEL_FILE_PATH);
+    worksheet = workbook.getWorksheet(1);
+  } else {
+    console.log("Creating new worksheet...");
+    worksheet = workbook.addWorksheet("Sheet1");
+    worksheet.columns = [
+      { header: "Date Created", key: "date", width: 30 },
+      { header: "Username", key: "username", width: 30 },
+      { header: "Tweets", key: "tweets", width: 30 },
+      { header: "Link", key: "link", width: 30 },
+      { header: "DaysOfCoding", key: "daysofcoding", width: 15 },
+    ];
+  }
+
+  for (const tweet of tweets) {
+    let existingRow: ExcelJS.Row | undefined;
+
+    worksheet.eachRow((excelRow: any, rowNumber: any) => {
+      if (excelRow.getCell(2).text === tweet.Username) {
+        existingRow = excelRow;
+      }
+    });
+    if (existingRow) {
+      existingRow.getCell(1).value = tweet["Date Created"];
+      existingRow.getCell(3).value = tweet.Tweets;
+      existingRow.getCell(4).value = tweet.Link;
+      existingRow.getCell(5).value = existingRow.getCell(5).value ? +1 : 1;
+    } else {
+      worksheet.addRow({
+        date: tweet["Date Created"],
+        username: tweet.Username,
+        tweets: tweet.Tweets,
+        link: tweet.Link,
+        daysofcoding: tweet.DaysOfCoding,
+      });
+    }
+  }
+
+  console.log("Writing to file...");
+  await workbook.xlsx.writeFile(EXCEL_FILE_PATH);
+  console.log("Excel file has been updated successfully.");
+}
+
 async function processTweets() {
   const tweetData = await getTweets();
   console.log(tweetData);
@@ -141,6 +239,9 @@ async function processTweets() {
   const authorsData = await getTweetAuthors(tweetIds);
 
   const df = await createDataFrames(authorsData, tweetData);
+
+  await updateExcel(df);
+  await updateSpreadsheet(df);
 }
 
 (async () => {
