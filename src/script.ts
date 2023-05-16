@@ -6,15 +6,16 @@ import { URLSearchParams } from "url";
 import dotenv from "dotenv";
 dotenv.config();
 import needle from "needle";
+import * as path from "path";
 
 const BEARER_TOKEN = process.env.BEARER_TOKEN;
 const USER_LOOKUP_ENDPOINT = "https://api.twitter.com/2/users";
 const SEARCH_TWEETS_ENDPOINT = "https://api.twitter.com/2/tweets/search/recent";
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-const EXCEL_FILE_PATH = process.env.EXCEL_FILE_PATH;
+const EXCEL_FILE = process.env.EXCEL_FILE;
 
 // Ensure all required environment variables are set
-if (!BEARER_TOKEN || !SPREADSHEET_ID || !EXCEL_FILE_PATH) {
+if (!BEARER_TOKEN || !SPREADSHEET_ID || !EXCEL_FILE) {
   console.error("Missing one or more required environment variables");
   process.exit(1);
 }
@@ -182,14 +183,16 @@ async function updateExcel(tweets: Tweet[]) {
   const workbook = new ExcelJS.Workbook();
   let worksheet;
 
-  if (!BEARER_TOKEN || !EXCEL_FILE_PATH) {
-    console.error("BEARER_TOKEN and EXCEL_FILE_PATH must be set");
+  if (!BEARER_TOKEN || !EXCEL_FILE) {
+    console.error("BEARER_TOKEN and EXCEL_FILE must be set");
     process.exit(1);
   }
 
-  if (fs.existsSync(EXCEL_FILE_PATH)) {
+  const fullFilePath = path.join(__dirname, "..", `${EXCEL_FILE}`);
+
+  if (fs.existsSync(fullFilePath)) {
     console.log("Reading existing file...");
-    await workbook.xlsx.readFile(EXCEL_FILE_PATH);
+    await workbook.xlsx.readFile(fullFilePath);
     worksheet = workbook.getWorksheet(1);
   } else {
     console.log("Creating new worksheet...");
@@ -227,14 +230,13 @@ async function updateExcel(tweets: Tweet[]) {
     }
   }
 
-  console.log("Writing to file...");
-  await workbook.xlsx.writeFile(EXCEL_FILE_PATH);
+  console.log("Writing to:", fullFilePath);
+  await workbook.xlsx.writeFile(fullFilePath);
   console.log("Excel file has been updated successfully.");
 }
 
 async function processTweets() {
   const tweetData = await getTweets();
-  console.log(tweetData);
   const tweetIds = tweetData.data.map((tweet: any) => tweet.author_id);
   const authorsData = await getTweetAuthors(tweetIds);
 
@@ -243,6 +245,20 @@ async function processTweets() {
   await updateExcel(df);
   await updateSpreadsheet(df);
 }
+
+new CronJob(
+  "1 0 * * *",
+  async function () {
+    try {
+      await processTweets();
+    } catch (err) {
+      console.error(err);
+    }
+  },
+  undefined,
+  true,
+  "GMT"
+);
 
 (async () => {
   console.log("running");
