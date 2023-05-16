@@ -1,0 +1,6 @@
+credentials
+.env
+dist
+mdrive.json
+node_modules
+```
