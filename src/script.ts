@@ -80,7 +80,7 @@ async function getTweetAuthors(tweetIds: string[]): Promise<AuthorData> {
   return await response.json();
 }
 
-async function getTweets() {
+async function getTweets(nextToken?: string) {
   console.log("getting tweets");
 
   const now = new Date();
@@ -97,6 +97,7 @@ async function getTweets() {
     "tweet.fields": "author_id",
     "user.fields": "username",
     max_results: 100,
+    next_token: nextToken,
   };
 
   const response = await needle("get", SEARCH_TWEETS_ENDPOINT, params, {
@@ -110,7 +111,16 @@ async function getTweets() {
     throw new Error("Unsuccessful request");
   }
 
-  return response.body;
+  const data = response.body;
+  const tweets = data.data;
+
+  // Get the next batch of tweets
+  if (data.meta && data.meta.next_token) {
+    const nextBatch = await getTweets(data.meta.next_token);
+    tweets.push(...nextBatch);
+  }
+
+  return tweets;
 }
 
 async function createDataFrames(authorsData: any, tweetData: any) {
