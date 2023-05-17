@@ -161,7 +161,7 @@ async function updateSpreadsheet(df: any): Promise<void> {
   const doc = new GoogleSpreadsheet(SPREADSHEET_ID);
   await doc.useServiceAccountAuth(require("../mdrive.json"));
   await doc.loadInfo();
-  const sheet = doc.sheetsByIndex[0];
+  const sheet = doc.sheetsByTitle["30DoS"];
 
   const rows = await sheet.getRows();
   const existingUsers: { [key: string]: any } = {};
@@ -169,25 +169,34 @@ async function updateSpreadsheet(df: any): Promise<void> {
     existingUsers[row.Username] = row;
   });
 
+  const currentBatch: { [key: string]: any } = {};
   for (const row of df) {
     const username = row.Username;
-    if (username in existingUsers) {
-      // increment day count
-      existingUsers[username].DaysOfCoding++;
-      // update date, tweets, link
-      existingUsers[username]["Date Created"] = row["Date Created"];
-      existingUsers[username].Tweets = row.Tweets;
-      existingUsers[username].Link = row.Link;
-      await existingUsers[username].save();
-    } else {
-      // add new user
-      await sheet.addRow({
+    if (!(username in currentBatch)) {
+      // add new user in current batch
+      currentBatch[username] = {
         "Date Created": row["Date Created"],
         Username: row.Username,
         Tweets: row.Tweets,
         Link: row.Link,
         DaysOfCoding: row.DaysOfCoding,
-      });
+      };
+    }
+  }
+
+  for (const username in currentBatch) {
+    if (username in existingUsers) {
+      // increment day count
+      existingUsers[username].DaysOfCoding++;
+      // update date, tweets, link
+      existingUsers[username]["Date Created"] =
+        currentBatch[username]["Date Created"];
+      existingUsers[username].Tweets = currentBatch[username].Tweets;
+      existingUsers[username].Link = currentBatch[username].Link;
+      await existingUsers[username].save();
+    } else {
+      // add new user in spreadsheet
+      await sheet.addRow(currentBatch[username]);
     }
   }
 }
@@ -274,11 +283,11 @@ new CronJob(
   "GMT"
 );
 
-(async () => {
-  console.log("running");
-  try {
-    await processTweets();
-  } catch (err) {
-    console.error("An error occurred:", err);
-  }
-})();
+// (async () => {
+//   console.log("running");
+//   try {
+//     await processTweets();
+//   } catch (err) {
+//     console.error("An error occurred:", err);
+//   }
+// })();
