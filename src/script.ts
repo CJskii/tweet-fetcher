@@ -90,15 +90,18 @@ async function getTweets(nextToken?: string) {
   const startDate = `${yesterday.toISOString().split("T")[0]}T00:00:01Z`;
   const endDate = `${yesterday.toISOString().split("T")[0]}T23:59:59Z`;
 
-  const params = {
-    query: "#30DaysofSolidityLW3 has:mentions -is:retweet",
+  const params: any = {
+    query: "#30DaysofSolidityLW3 w/ @LearnWeb3DAO has:mentions -is:retweet",
     start_time: startDate,
     end_time: endDate,
     "tweet.fields": "author_id",
     "user.fields": "username",
     max_results: 100,
-    next_token: nextToken,
   };
+
+  if (nextToken) {
+    params.next_token = nextToken;
+  }
 
   const response = await needle("get", SEARCH_TWEETS_ENDPOINT, params, {
     headers: {
@@ -112,6 +115,7 @@ async function getTweets(nextToken?: string) {
   }
 
   const data = response.body;
+  console.log(data);
   const tweets = data.data;
 
   // Get the next batch of tweets
@@ -134,7 +138,7 @@ async function createDataFrames(authorsData: any, tweetData: any) {
   }/${yesterday.getFullYear()}`;
 
   const df: Tweet[] = [];
-  for (const tweet of tweetData.data) {
+  for (const tweet of tweetData) {
     const authorName = authors[tweet.author_id];
     const url = `https://twitter.com/${authorName}/status/${tweet.id}`;
 
@@ -247,7 +251,7 @@ async function updateExcel(tweets: Tweet[]) {
 
 async function processTweets() {
   const tweetData = await getTweets();
-  const tweetIds = tweetData.data.map((tweet: any) => tweet.author_id);
+  const tweetIds = tweetData.map((tweet: any) => tweet.author_id);
   const authorsData = await getTweetAuthors(tweetIds);
 
   const df = await createDataFrames(authorsData, tweetData);
